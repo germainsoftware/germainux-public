@@ -1,0 +1,558 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: germainapm-server
+spec:
+  replicas: {{germainServerReplicas}}
+  minReadySeconds: 10
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      service-type: server
+  template:
+    metadata:
+      labels:
+        service-type: server
+    spec:
+      hostname: germainapm-server
+      volumes:
+        - name: var-logs
+          hostPath:
+            path: /opt/var/logs
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - image: {{germainApmBuildRegistry}}/germainapm-server:{{germainVersion}}
+          imagePullPolicy: Always
+          name: germain-server
+          resources:
+            requests:
+              memory: 1024Mi
+            limits:
+              memory: 4096Mi
+          ports:
+            - containerPort: 8080
+              name: container-port
+          env:
+            - name: GERMAIN_ENV
+              value: "germain"
+            - name: ZK_URL
+              value: "germainapm-zookeeper:2181"
+            - name: ELASTIC_URL
+              value: "true"
+          volumeMounts:
+            - name: var-logs
+              mountPath: /opt/tomcat8/logs
+          livenessProbe:
+            httpGet:
+              path: /actuator/prometheus
+              port: container-port
+            initialDelaySeconds: 300
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/prometheus
+              port: container-port
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+      initContainers:
+      - name: wait-for-storage
+        image: busybox
+        args: [
+          "/bin/sh",
+          "-c",
+          "while [[ \"$(wget --server-response http://germainapm-storage:8080/actuator/prometheus 2>&1 | awk '/^  HTTP/{print $2}')\" != \"200\" ]]; do sleep 10; done"
+        ]
+        securityContext:
+          privileged: true
+
+# STORAGE
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: germainapm-storage
+spec:
+  replicas: {{germainStorageReplicas}}
+  minReadySeconds: 10
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      service-type: storage
+  template:
+    metadata:
+      labels:
+        service-type: storage
+    spec:
+      hostname: germainapm-storage
+      volumes:
+        - name: var-logs
+          hostPath:
+            path: /opt/var
+        - name: common-properties
+          configMap:
+            name: common-properties
+        - name: license
+          configMap:
+            name: license-folder
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - image: {{germainApmBuildRegistry}}/germainapm-services:{{germainVersion}}
+          imagePullPolicy: Always
+          name: germainapm-storage
+          resources:
+            requests:
+              memory: 1024Mi
+            limits:
+              memory: 4096Mi
+          ports:
+            - containerPort: 8080
+              name: container-port
+          env:
+            - name: GERMAIN_ENV
+              value: "germain"
+            - name: ZK_URL
+              value: "germainapm-zookeeper:2181"
+            - name: ELASTIC_URL
+              value: "true"
+            - name: SERVICE_NAME
+              value: "storage"
+            - name: BOOTSTRAP_ARGS
+              value : "--create-schema --skip-existing --upgrade-config"
+          volumeMounts:
+            - name: var-logs
+              mountPath: /opt/services/var
+            - name: common-properties
+              mountPath: /opt/services/config/common.properties
+              subPath: configData
+            - name: license
+              mountPath: /opt/services/install/configuration/custom/
+          livenessProbe:
+            httpGet:
+              path: /actuator/prometheus
+              port: container-port
+            initialDelaySeconds: 300
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/prometheus
+              port: container-port
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+
+# RTM
+---
+# apiVersion: apps/v1
+# kind: Deployment
+# metadata:
+#   name: germainapm-rtm
+# spec:
+#   replicas: {{germainRtmReplicas}}
+#   minReadySeconds: 10
+#   strategy:
+#     type: Recreate
+#   selector:
+#     matchLabels:
+#       service-type: rtm
+#   template:
+#     metadata:
+#       labels:
+#         service-type: rtm
+#     spec:
+#       hostname: germainapm-rtm
+#       volumes:
+#         - name: var-logs
+#           hostPath:
+#             path: /opt/var
+#       imagePullSecrets:
+#         - name: regcred
+#       containers:
+#         - image: {{germainApmBuildRegistry}}/germainapm-services:{{germainVersion}}
+#           imagePullPolicy: Always
+#           name: germainapm-rtm
+#           resources:
+#             requests:
+#               memory: 512Mi
+#             limits:
+#               memory: 2048Mi
+#           ports:
+#           - containerPort: 8096
+#             name: container-port
+#           env:
+#             - name: GERMAIN_ENV
+#               value: "germain"
+#             - name: ZK_URL
+#               value: "germainapm-zookeeper:2181"
+#             - name: ELASTIC_URL
+#               value: "true"
+#             - name: SERVICE_NAME
+#               value: "rtm"
+#             - name: SERVICE_PORT
+#               value: "8096"
+#           volumeMounts:
+#             - name: var-logs
+#               mountPath: /opt/services/var
+#           livenessProbe:
+#             httpGet:
+#               path: /actuator/prometheus
+#               port: container-port
+#             initialDelaySeconds: 300
+#             periodSeconds: 10
+#             timeoutSeconds: 5
+#             successThreshold: 1
+#             failureThreshold: 10
+#           readinessProbe:
+#             httpGet:
+#               path: /actuator/prometheus
+#               port: container-port
+#             initialDelaySeconds: 60
+#             periodSeconds: 10
+#             timeoutSeconds: 5
+#             successThreshold: 1
+#             failureThreshold: 3
+#       initContainers:
+#       - name: wait-for-storage
+#         image: busybox
+#         args: [
+#           "/bin/sh",
+#           "-c",
+#           "while [[ \"$(wget --server-response http://germainapm-storage:8080/actuator/prometheus 2>&1 | awk '/^  HTTP/{print $2}')\" != \"200\" ]]; do sleep 10; done"
+#         ]
+#         securityContext:
+#           privileged: true
+
+# SESSION
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: germainapm-session
+spec:
+  replicas: {{germainSessionReplicas}}
+  minReadySeconds: 10
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      service-type: session
+  template:
+    metadata:
+      labels:
+        service-type: session
+    spec:
+      hostname: germainapm-session
+      volumes:
+        - name: var-logs
+          hostPath:
+            path: /opt/var
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - image: {{germainApmBuildRegistry}}/germainapm-services:{{germainVersion}}
+          imagePullPolicy: Always
+          name: germainapm-storage
+          resources:
+            requests:
+              memory: 512Mi
+            limits:
+              memory: 2048Mi
+          ports:
+            - containerPort: 8080
+              name: container-port
+          env:
+            - name: GERMAIN_ENV
+              value: "germain"
+            - name: ZK_URL
+              value: "germainapm-zookeeper:2181"
+            - name: ELASTIC_URL
+              value: "true"
+            - name: SERVICE_NAME
+              value: "session"
+          volumeMounts:
+            - name: var-logs
+              mountPath: /opt/services/var
+          livenessProbe:
+            httpGet:
+              path: /actuator/prometheus
+              port: container-port
+            initialDelaySeconds: 300
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/prometheus
+              port: container-port
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+      initContainers:
+      - name: wait-for-storage
+        image: busybox
+        args: [
+          "/bin/sh",
+          "-c",
+          "while [[ \"$(wget --server-response http://germainapm-storage:8080/actuator/prometheus 2>&1 | awk '/^  HTTP/{print $2}')\" != \"200\" ]]; do sleep 10; done"
+        ]
+        securityContext:
+          privileged: true
+
+# ANALYTICS
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: germainapm-analytics
+spec:
+  replicas: {{germainAnalyticsReplicas}}
+  minReadySeconds: 10
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      service-type: analytics
+  template:
+    metadata:
+      labels:
+        service-type: analytics
+    spec:
+      hostname: germainapm-analytics
+      volumes:
+        - name: var-logs
+          hostPath:
+            path: /opt/var
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - image: {{germainApmBuildRegistry}}/germainapm-services:{{germainVersion}}
+          imagePullPolicy: Always
+          name: germainapm-analytics
+          resources:
+            requests:
+              memory: 512Mi
+            limits:
+              memory: 2048Mi
+          ports:
+          - containerPort: 8094
+            name: container-port
+          env:
+            - name: GERMAIN_ENV
+              value: "germain"
+            - name: ZK_URL
+              value: "germainapm-zookeeper:2181"
+            - name: ELASTIC_URL
+              value: "true"
+            - name: SERVICE_NAME
+              value: "analytics"
+            - name: SERVICE_PORT
+              value: "8094"
+          volumeMounts:
+            - name: var-logs
+              mountPath: /opt/services/var
+          livenessProbe:
+            httpGet:
+              path: /actuator/prometheus
+              port: container-port
+            initialDelaySeconds: 300
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/prometheus
+              port: container-port
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+      initContainers:
+      - name: wait-for-storage
+        image: busybox
+        args: [
+          "/bin/sh",
+          "-c",
+          "while [[ \"$(wget --server-response http://germainapm-storage:8080/actuator/prometheus 2>&1 | awk '/^  HTTP/{print $2}')\" != \"200\" ]]; do sleep 10; done"
+        ]
+        securityContext:
+          privileged: true
+
+# AGGREGATION
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: germainapm-aggregation
+spec:
+  replicas: {{germainAggregationReplicas}}
+  minReadySeconds: 10
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      service-type: aggregation
+  template:
+    metadata:
+      labels:
+        service-type: aggregation
+    spec:
+      hostname: germainapm-aggregation
+      volumes:
+        - name: var-logs
+          hostPath:
+            path: /opt/var
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - image: {{germainApmBuildRegistry}}/germainapm-services:{{germainVersion}}
+          imagePullPolicy: Always
+          name: germainapm-aggregation
+          resources:
+            requests:
+              memory: 512Mi
+            limits:
+              memory: 2048Mi
+          ports:
+          - containerPort: 8092
+            name: container-port
+          env:
+            - name: GERMAIN_ENV
+              value: "germain"
+            - name: ZK_URL
+              value: "germainapm-zookeeper:2181"
+            - name: ELASTIC_URL
+              value: "true"
+            - name: SERVICE_NAME
+              value: "aggregation"
+            - name: SERVICE_PORT
+              value: "8092"
+          volumeMounts:
+            - name: var-logs
+              mountPath: /opt/services/var
+          livenessProbe:
+            httpGet:
+              path: /actuator/prometheus
+              port: container-port
+            initialDelaySeconds: 300
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/prometheus
+              port: container-port
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+      initContainers:
+      - name: wait-for-storage
+        image: busybox
+        args: [
+          "/bin/sh",
+          "-c",
+          "while [[ \"$(wget --server-response http://germainapm-storage:8080/actuator/prometheus 2>&1 | awk '/^  HTTP/{print $2}')\" != \"200\" ]]; do sleep 10; done"
+        ]
+        securityContext:
+          privileged: true
+
+# ACTION
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: germainapm-action
+spec:
+  replicas: {{germainActionReplicas}}
+  minReadySeconds: 10
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      service-type: action
+  template:
+    metadata:
+      labels:
+        service-type: action
+    spec:
+      hostname: germainapm-action
+      volumes:
+        - name: var-logs
+          hostPath:
+            path: /opt/var
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - image: {{germainApmBuildRegistry}}/germainapm-services:{{germainVersion}}
+          imagePullPolicy: Always
+          name: germainapm-action
+          resources:
+            requests:
+              memory: 512Mi
+            limits:
+              memory: 2048Mi
+          ports:
+            - containerPort: 8080
+              name: container-port
+          env:
+            - name: GERMAIN_ENV
+              value: "germain"
+            - name: ZK_URL
+              value: "germainapm-zookeeper:2181"
+            - name: ELASTIC_URL
+              value: "true"
+            - name: SERVICE_NAME
+              value: "action"
+          volumeMounts:
+            - name: var-logs
+              mountPath: /opt/services/var
+          livenessProbe:
+            httpGet:
+              path: /actuator/prometheus
+              port: container-port
+            initialDelaySeconds: 300
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/prometheus
+              port: container-port
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+      initContainers:
+      - name: wait-for-storage
+        image: busybox
+        args: [
+          "/bin/sh",
+          "-c",
+          "while [[ \"$(wget --server-response http://germainapm-storage:8080/actuator/prometheus 2>&1 | awk '/^  HTTP/{print $2}')\" != \"200\" ]]; do sleep 10; done"
+        ]
+        securityContext:
+          privileged: true

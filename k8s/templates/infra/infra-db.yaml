@@ -1,0 +1,8 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: "germainapm-db"
+spec:
+  type: ExternalName
+  externalName: {{germain-external-db}}

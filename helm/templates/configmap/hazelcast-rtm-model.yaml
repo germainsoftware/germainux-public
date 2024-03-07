@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hazelcast-rtm-model
+binaryData:
+  configData: |-
+{{ .Files.Get .Values.hazelcastRTMModelJar | b64enc | indent 4 }}

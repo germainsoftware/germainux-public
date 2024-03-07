@@ -1,0 +1,96 @@
+---
+{{ if .Values.germainDb.clusterMySQConfigLDB }}
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mysql-pv-volume
+  labels:
+    type: local
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 20Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/data"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pv-claim
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.germainDb.clusterServiceName }}
+  labels:
+    app: mysql
+spec:
+  ports:
+  - port: 3306
+    name: client
+  clusterIP: None
+  selector:
+    app: mysql
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+      - image: mysql:{{ .Values.germainDb.version }}
+        name: mysql
+        resources:
+            requests:
+              memory: 1024Mi
+              cpu: 100m
+            limits:
+              memory: 2048Mi
+              cpu: 1000m
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          value: {{ .Values.germainDb.mysqlRootPassword }}
+        ports:
+        - containerPort: 3306
+          name: mysql
+        volumeMounts:
+        - name: mysql-persistent-storage
+          mountPath: /var/lib/mysql
+      volumes:
+      - name: mysql-persistent-storage
+        persistentVolumeClaim:
+          claimName: mysql-pv-claim
+
+{{ else }}
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.germainDb.clusterServiceName }}
+spec:
+  type: ExternalName
+  externalName: {{ .Values.germainDb.Hostname }}
+
+{{ end }}
